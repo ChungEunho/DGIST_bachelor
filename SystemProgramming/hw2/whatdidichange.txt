@@ -1,0 +1,1599 @@
+1. 필요없는 메모리 초기화 제거
+static Pixel convolution(
+Pixel* input, int x, int y, int width, int height, float* filter) {
+    double r = 0;
+    double g = 0;
+    double b = 0;
+
+    for (int dx = -1; dx < 2; ++dx) {
+        for (int dy = -1; dy < 2; ++dy) {
+            if ((y + dy) < 0 || (y + dy) >= height)
+                continue;
+
+            if ((x + dx) < 0 || (x + dx) >= width)
+                continue;
+
+            r += input[(x+dx)+(y+dy)*width].r * filter[(dx+1)+(dy+1)*3];
+            g += input[(x+dx)+(y+dy)*width].g * filter[(dx+1)+(dy+1)*3];
+            b += input[(x+dx)+(y+dy)*width].b * filter[(dx+1)+(dy+1)*3];
+        }
+    }
+
+    if (r < 0) r = 0;
+    if (g < 0) g = 0;
+    if (b < 0) b = 0;
+
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (b > 255) b = 255;
+    
+    Pixel p;
+    //memset(&p, 0, sizeof(p));
+
+    p.r = (unsigned char)r;
+    p.g = (unsigned char)g;
+    p.b = (unsigned char)b;
+
+    return p;
+}
+
+// This implementation is simply copied from "main.c".
+// Your job is to modify and optimize it for better performance!
+
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+
+    for (int x = 0; x < width; ++x) {
+        for (int y = 0; y < height; ++y) {
+            Pixel* p = (Pixel*)malloc(sizeof(Pixel));
+            *p = convolution(input, x, y, width, height, filter);
+
+            output[x+y*width].r = p->r;
+            output[x+y*width].g = p->g;
+            output[x+y*width].b = p->b;
+
+            free(p);
+        }
+    }
+}
+
+2. strength reduction 기법 - convolution 함수에서는 baseIndex와 rowIndex를 사용하여 각 픽셀의 위치를 계산합니다. 이렇게 하면 곱셈을 덧셈으로 대체할 수 있습니다.
+                            여기서는 반복되는 곱셈 연산을 덜 비용이 드는 덧셈 연산으로 대체할 수 있습니다.
+// Assignment 2 - Efficient C Programming
+// System Programming, DGIST, Prof. Yeseong Kim
+// 
+// YOU WILL TURN IN THIS FILE.
+// Read the provided instruction carefully.
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "bmplib.h"
+#include "hw2.h"
+
+#define block_size 100
+
+static Pixel convolution(
+Pixel* input, int x, int y, int width, int height, float* filter) {
+
+    double r = 0;
+    double g = 0;
+    double b = 0;
+
+    int baseIndex = y * width + x;
+    int filterIndex = 0;
+    for (int dy = -1; dy < 2; ++dy) {
+        int rowIndex = baseIndex + dy * width;
+        for (int dx = -1; dx <= 1; ++dx) {
+            if ((y + dy) >= 0 && (y + dy) < height && (x + dx) >= 0 && (x + dx) < width) {
+                int inputIndex = rowIndex + dx;
+                r += input[inputIndex].r * filter[filterIndex];
+                g += input[inputIndex].g * filter[filterIndex];
+                b += input[inputIndex].b * filter[filterIndex];
+            }
+            filterIndex++;
+        }
+    }
+
+    if (r < 0) r = 0;
+    if (g < 0) g = 0;
+    if (b < 0) b = 0;
+
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (b > 255) b = 255;
+    
+    Pixel p;
+    //memset(&p, 0, sizeof(p));
+
+    p.r = (unsigned char)r;
+    p.g = (unsigned char)g;
+    p.b = (unsigned char)b;
+
+    return p;
+}
+
+// This implementation is simply copied from "main.c".
+// Your job is to modify and optimize it for better performance!
+
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+
+    for (int x = 0; x < width; ++x) {
+        for (int y = 0; y < height; ++y) {
+            Pixel* p = (Pixel*)malloc(sizeof(Pixel));
+            *p = convolution(input, x, y, width, height, filter);
+
+            output[x+y*width].r = p->r;
+            output[x+y*width].g = p->g;
+            output[x+y*width].b = p->b;
+
+            free(p);
+        }
+    }
+}
+
+
+3. 동적 할당 for loop 밖으로 빼기
+
+// Assignment 2 - Efficient C Programming
+// System Programming, DGIST, Prof. Yeseong Kim
+// 
+// YOU WILL TURN IN THIS FILE.
+// Read the provided instruction carefully.
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "bmplib.h"
+#include "hw2.h"
+
+#define block_size 100
+
+static Pixel convolution(
+Pixel* input, int x, int y, int width, int height, float* filter) {
+
+    double r = 0;
+    double g = 0;
+    double b = 0;
+
+    int baseIndex = y * width + x;
+    int filterIndex = 0;
+    for (int dy = -1; dy < 2; ++dy) {
+        int rowIndex = baseIndex + dy * width;
+        for (int dx = -1; dx <= 1; ++dx) {
+            if ((y + dy) >= 0 && (y + dy) < height && (x + dx) >= 0 && (x + dx) < width) {
+                int inputIndex = rowIndex + dx;
+                r += input[inputIndex].r * filter[filterIndex];
+                g += input[inputIndex].g * filter[filterIndex];
+                b += input[inputIndex].b * filter[filterIndex];
+            }
+            filterIndex++;
+        }
+    }
+
+    if (r < 0) r = 0;
+    if (g < 0) g = 0;
+    if (b < 0) b = 0;
+
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (b > 255) b = 255;
+    
+    Pixel p;
+    //memset(&p, 0, sizeof(p));
+
+    p.r = (unsigned char)r;
+    p.g = (unsigned char)g;
+    p.b = (unsigned char)b;
+
+    return p;
+}
+
+// This implementation is simply copied from "main.c".
+// Your job is to modify and optimize it for better performance!
+
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+
+    for (int x = 0; x < width; ++x) {
+        for (int y = 0; y < height; ++y) {
+            Pixel p;
+            p = convolution(input, x, y, width, height, filter);
+
+            output[x+y*width].r = p.r;
+            output[x+y*width].g = p.g;
+            output[x+y*width].b = p.b;
+        }
+    }
+}
+
+4. code motion : filter_optimized 함수에서 rowIndex를 미리 계산하여 반복문 내에서의 곱셈을 줄였습니다.
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "bmplib.h"
+#include "hw2.h"
+
+#define block_size 100
+
+static Pixel convolution(
+Pixel* input, int x, int y, int width, int height, float* filter) {
+
+    double r = 0;
+    double g = 0;
+    double b = 0;
+
+    int baseIndex = y * width + x;
+    int filterIndex = 0;
+    for (int dy = -1; dy < 2; ++dy) {
+        int rowIndex = baseIndex + dy * width;
+        for (int dx = -1; dx <= 1; ++dx) {
+            if ((y + dy) >= 0 && (y + dy) < height && (x + dx) >= 0 && (x + dx) < width) {
+                int inputIndex = rowIndex + dx;
+                r += input[inputIndex].r * filter[filterIndex];
+                g += input[inputIndex].g * filter[filterIndex];
+                b += input[inputIndex].b * filter[filterIndex];
+            }
+            filterIndex++;
+        }
+    }
+
+    if (r < 0) r = 0;
+    if (g < 0) g = 0;
+    if (b < 0) b = 0;
+
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (b > 255) b = 255;
+    
+    Pixel p;
+    //memset(&p, 0, sizeof(p));
+
+    p.r = (unsigned char)r;
+    p.g = (unsigned char)g;
+    p.b = (unsigned char)b;
+
+    return p;
+}
+
+// This implementation is simply copied from "main.c".
+// Your job is to modify and optimize it for better performance!
+
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+    Pixel* p = (Pixel*)malloc(sizeof(Pixel)); // 메모리 할당을 루프 밖으로 이동
+    for (int y = 0; y < height; ++y) {
+        int rowIndex = y * width;
+        for (int x = 0; x < width; ++x) {
+            *p = convolution(input, x, y, width, height, filter);
+            int index = rowIndex + x;
+            output[index].r = p->r;
+            output[index].g = p->g;
+            output[index].b = p->b;
+        }
+    }
+    free(p); // 루프가 끝난 후 메모리 해제
+}
+
+5. convolution 함수 inline으로 변경
+// Assignment 2 - Efficient C Programming
+// System Programming, DGIST, Prof. Yeseong Kim
+// 
+// YOU WILL TURN IN THIS FILE.
+// Read the provided instruction carefully.
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "bmplib.h"
+#include "hw2.h"
+
+#define block_size 100
+
+inline static Pixel convolution(
+Pixel* input, int x, int y, int width, int height, float* filter) {
+
+    double r = 0;
+    double g = 0;
+    double b = 0;
+
+    int baseIndex = y * width + x;
+    int filterIndex = 0;
+
+    for (int dy = -1; dy < 2; ++dy) {
+        int rowIndex = baseIndex + dy * width;   
+        for (int dx = -1; dx <= 1; ++dx) {
+            if ((y + dy) >= 0 && (y + dy) < height && (x + dx) >= 0 && (x + dx) < width) {
+                int inputIndex = rowIndex + dx;
+                r += input[inputIndex].r * filter[filterIndex];
+                g += input[inputIndex].g * filter[filterIndex];
+                b += input[inputIndex].b * filter[filterIndex];
+            }
+            filterIndex++;
+        }
+    }
+
+    if (r < 0) r = 0;
+    if (g < 0) g = 0;
+    if (b < 0) b = 0;
+
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (b > 255) b = 255;
+    
+    Pixel p;
+    //memset(&p, 0, sizeof(p));
+
+    p.r = (unsigned char)r;
+    p.g = (unsigned char)g;
+    p.b = (unsigned char)b;
+
+    return p;
+}
+
+// This implementation is simply copied from "main.c".
+// Your job is to modify and optimize it for better performance!
+
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+    Pixel* p = (Pixel*)malloc(sizeof(Pixel)); // 메모리 할당을 루프 밖으로 이동
+    for (int y = 0; y < height; ++y) {
+        int rowIndex = y * width;
+        for (int x = 0; x < width; ++x) {
+            *p = convolution(input, x, y, width, height, filter);
+            int index = rowIndex + x;
+            output[index].r = p->r;
+            output[index].g = p->g;
+            output[index].b = p->b;
+        }
+    }
+    free(p); // 루프가 끝난 후 메모리 해제
+}
+
+6. 스택 할당/ 비할당 오버헤드 제거
+
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+
+    for (int y = 0; y < height; ++y) {
+        int rowIndex = y * width;
+        for (int x = 0; x < width; ++x) {
+            Pixel p;
+            double val_r = 0;
+            double val_g = 0;
+            double val_b = 0;
+
+            int baseIndex = y * width + x;
+            int filterIndex = 0;
+
+            for (int dy = -1; dy < 2; ++dy) {
+                int rowIndex = baseIndex + dy * width;
+                for (int dx = -1; dx <= 1; ++dx) {
+                    if ((y + dy) >= 0 && (y + dy) < height && (x + dx) >= 0 && (x + dx) < width) {
+                        int inputIndex = rowIndex + dx;
+                        val_r += input[inputIndex].r * filter[filterIndex];
+                        val_g += input[inputIndex].g * filter[filterIndex];
+                        val_b += input[inputIndex].b * filter[filterIndex];
+                    }
+                    filterIndex++;
+                }
+            }
+
+            if (val_r < 0) val_r = 0;
+            if (val_g < 0) val_g = 0;
+            if (val_b < 0) val_b = 0;
+
+            if (val_r > 255) val_r = 255;
+            if (val_g > 255) val_g = 255;
+            if (val_b > 255) val_b = 255;
+
+            p.r = (unsigned char)val_r;
+            p.g = (unsigned char)val_g;
+            p.b = (unsigned char)val_b;
+
+            int index = rowIndex + x;
+            output[index].r = p.r;
+            output[index].g = p.g;
+            output[index].b = p.b;
+        }
+    }
+}
+
+7. loop unrolling
+#define block_size 100
+
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+
+    int width_unrolled = width / 2 * 2; // width를 2로 나눈 후 다시 2를 곱하여 짝수로 만듭니다.
+
+    for (int y = 0; y < height; ++y) {
+        int rowIndex = y * width;
+        for (int x = 0; x < width_unrolled; x += 2) {
+            Pixel p1, p2;
+            double val_r1 = 0, val_r2 = 0;
+            double val_g1 = 0, val_g2 = 0;
+            double val_b1 = 0, val_b2 = 0;
+
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int nx1 = x + dx;
+                        int nx2 = x + dx + 1;
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        float filterValue = filter[filterIndex];
+                        if (nx1 >= 0 && nx1 < width) {
+                            int inputIndex1 = (ny * width) + nx1;
+                            val_r1 += input[inputIndex1].r * filterValue;
+                            val_g1 += input[inputIndex1].g * filterValue;
+                            val_b1 += input[inputIndex1].b * filterValue;
+                        }
+                        if (nx2 >= 0 && nx2 < width) {
+                            int inputIndex2 = (ny * width) + nx2;
+                            val_r2 += input[inputIndex2].r * filterValue;
+                            val_g2 += input[inputIndex2].g * filterValue;
+                            val_b2 += input[inputIndex2].b * filterValue;
+                        }
+                    }
+                }
+            }
+
+            // Clamping values to be within 0 to 255
+            val_r1 = val_r1 < 0 ? 0 : (val_r1 > 255 ? 255 : val_r1);
+            val_g1 = val_g1 < 0 ? 0 : (val_g1 > 255 ? 255 : val_g1);
+            val_b1 = val_b1 < 0 ? 0 : (val_b1 > 255 ? 255 : val_b1);
+
+            val_r2 = val_r2 < 0 ? 0 : (val_r2 > 255 ? 255 : val_r2);
+            val_g2 = val_g2 < 0 ? 0 : (val_g2 > 255 ? 255 : val_g2);
+            val_b2 = val_b2 < 0 ? 0 : (val_b2 > 255 ? 255 : val_b2);
+
+            p1.r = (unsigned char)val_r1;
+            p1.g = (unsigned char)val_g1;
+            p1.b = (unsigned char)val_b1;
+
+            p2.r = (unsigned char)val_r2;
+            p2.g = (unsigned char)val_g2;
+            p2.b = (unsigned char)val_b2;
+
+            output[rowIndex + x] = p1;
+            output[rowIndex + x + 1] = p2;
+        }
+
+        // 처리되지 않은 나머지 픽셀 처리
+        for (int x = width_unrolled; x < width; ++x) {
+            Pixel p;
+            double val_r = 0;
+            double val_g = 0;
+            double val_b = 0;
+
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int nx = x + dx;
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        if (nx >= 0 && nx < width) {
+                            int inputIndex = (ny * width) + nx;
+                            val_r += input[inputIndex].r * filter[filterIndex];
+                            val_g += input[inputIndex].g * filter[filterIndex];
+                            val_b += input[inputIndex].b * filter[filterIndex];
+                        }
+                    }
+                }
+            }
+
+            // Clamping values to be within 0 to 255
+            val_r = val_r < 0 ? 0 : (val_r > 255 ? 255 : val_r);
+            val_g = val_g < 0 ? 0 : (val_g > 255 ? 255 : val_g);
+            val_b = val_b < 0 ? 0 : (val_b > 255 ? 255 : val_b);
+
+            p.r = (unsigned char)val_r;
+            p.g = (unsigned char)val_g;
+            p.b = (unsigned char)val_b;
+
+            output[rowIndex + x] = p;
+        }
+    }
+}
+
+8. 이제 네 배수로 폭이 풀립니다 (int width_unrolled = width / 4 * 4;).
+   내부 루프는 한 번에 네 개의 픽셀 (p1, p2, p3, p4)을 처리하여 루프 오버헤드를 크게 줄입니다
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+
+    int width_unrolled = width / 4 * 4; // Ensure width is multiple of 4 for loop unrolling
+
+    for (int y = 0; y < height; ++y) {
+        int rowIndex = y * width;
+        for (int x = 0; x < width_unrolled; x += 4) {
+            Pixel p1, p2, p3, p4;
+            double val_r1 = 0, val_r2 = 0, val_r3 = 0, val_r4 = 0;
+            double val_g1 = 0, val_g2 = 0, val_g3 = 0, val_g4 = 0;
+            double val_b1 = 0, val_b2 = 0, val_b3 = 0, val_b4 = 0;
+
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    int rowIndexOffset = ny * width;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        float filterValue = filter[filterIndex];
+                        int nx1 = x + dx;
+                        int nx2 = x + dx + 1;
+                        int nx3 = x + dx + 2;
+                        int nx4 = x + dx + 3;
+
+                        if (nx1 >= 0 && nx1 < width) {
+                            int inputIndex1 = rowIndexOffset + nx1;
+                            val_r1 += input[inputIndex1].r * filterValue;
+                            val_g1 += input[inputIndex1].g * filterValue;
+                            val_b1 += input[inputIndex1].b * filterValue;
+                        }
+                        if (nx2 >= 0 && nx2 < width) {
+                            int inputIndex2 = rowIndexOffset + nx2;
+                            val_r2 += input[inputIndex2].r * filterValue;
+                            val_g2 += input[inputIndex2].g * filterValue;
+                            val_b2 += input[inputIndex2].b * filterValue;
+                        }
+                        if (nx3 >= 0 && nx3 < width) {
+                            int inputIndex3 = rowIndexOffset + nx3;
+                            val_r3 += input[inputIndex3].r * filterValue;
+                            val_g3 += input[inputIndex3].g * filterValue;
+                            val_b3 += input[inputIndex3].b * filterValue;
+                        }
+                        if (nx4 >= 0 && nx4 < width) {
+                            int inputIndex4 = rowIndexOffset + nx4;
+                            val_r4 += input[inputIndex4].r * filterValue;
+                            val_g4 += input[inputIndex4].g * filterValue;
+                            val_b4 += input[inputIndex4].b * filterValue;
+                        }
+                    }
+                }
+            }
+
+            // Clamping values to be within 0 to 255
+            p1.r = (unsigned char)(val_r1 < 0 ? 0 : (val_r1 > 255 ? 255 : val_r1));
+            p1.g = (unsigned char)(val_g1 < 0 ? 0 : (val_g1 > 255 ? 255 : val_g1));
+            p1.b = (unsigned char)(val_b1 < 0 ? 0 : (val_b1 > 255 ? 255 : val_b1));
+
+            p2.r = (unsigned char)(val_r2 < 0 ? 0 : (val_r2 > 255 ? 255 : val_r2));
+            p2.g = (unsigned char)(val_g2 < 0 ? 0 : (val_g2 > 255 ? 255 : val_g2));
+            p2.b = (unsigned char)(val_b2 < 0 ? 0 : (val_b2 > 255 ? 255 : val_b2));
+
+            p3.r = (unsigned char)(val_r3 < 0 ? 0 : (val_r3 > 255 ? 255 : val_r3));
+            p3.g = (unsigned char)(val_g3 < 0 ? 0 : (val_g3 > 255 ? 255 : val_g3));
+            p3.b = (unsigned char)(val_b3 < 0 ? 0 : (val_b3 > 255 ? 255 : val_b3));
+
+            p4.r = (unsigned char)(val_r4 < 0 ? 0 : (val_r4 > 255 ? 255 : val_r4));
+            p4.g = (unsigned char)(val_g4 < 0 ? 0 : (val_g4 > 255 ? 255 : val_g4));
+            p4.b = (unsigned char)(val_b4 < 0 ? 0 : (val_b4 > 255 ? 255 : val_b4));
+
+            output[rowIndex + x] = p1;
+            output[rowIndex + x + 1] = p2;
+            output[rowIndex + x + 2] = p3;
+            output[rowIndex + x + 3] = p4;
+        }
+
+        // 처리되지 않은 나머지 픽셀 처리
+        for (int x = width_unrolled; x < width; ++x) {
+            Pixel p;
+            double val_r = 0;
+            double val_g = 0;
+            double val_b = 0;
+
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    int rowIndexOffset = ny * width;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int nx = x + dx;
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        float filterValue = filter[filterIndex];
+                        if (nx >= 0 && nx < width) {
+                            int inputIndex = rowIndexOffset + nx;
+                            val_r += input[inputIndex].r * filterValue;
+                            val_g += input[inputIndex].g * filterValue;
+                            val_b += input[inputIndex].b * filterValue;
+                        }
+                    }
+                }
+            }
+
+            // Clamping values to be within 0 to 255
+            p.r = (unsigned char)(val_r < 0 ? 0 : (val_r > 255 ? 255 : val_r));
+            p.g = (unsigned char)(val_g < 0 ? 0 : (val_g > 255 ? 255 : val_g));
+            p.b = (unsigned char)(val_b < 0 ? 0 : (val_b > 255 ? 255 : val_b));
+
+            output[rowIndex + x] = p;
+        }
+    }
+}
+9. 이제 8배로 폭을 늘린다.
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+
+    int width_unrolled = width / 8 * 8; // Ensure width is multiple of 8 for loop unrolling
+
+    for (int y = 0; y < height; ++y) {
+        int rowIndex = y * width;
+        for (int x = 0; x < width_unrolled; x += 8) {
+            Pixel p1, p2, p3, p4, p5, p6, p7, p8;
+            double val_r1 = 0, val_r2 = 0, val_r3 = 0, val_r4 = 0;
+            double val_r5 = 0, val_r6 = 0, val_r7 = 0, val_r8 = 0;
+            double val_g1 = 0, val_g2 = 0, val_g3 = 0, val_g4 = 0;
+            double val_g5 = 0, val_g6 = 0, val_g7 = 0, val_g8 = 0;
+            double val_b1 = 0, val_b2 = 0, val_b3 = 0, val_b4 = 0;
+            double val_b5 = 0, val_b6 = 0, val_b7 = 0, val_b8 = 0;
+
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    int rowIndexOffset = ny * width;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        float filterValue = filter[filterIndex];
+                        int nx1 = x + dx;
+                        int nx2 = x + dx + 1;
+                        int nx3 = x + dx + 2;
+                        int nx4 = x + dx + 3;
+                        int nx5 = x + dx + 4;
+                        int nx6 = x + dx + 5;
+                        int nx7 = x + dx + 6;
+                        int nx8 = x + dx + 7;
+
+                        if (nx1 >= 0 && nx1 < width) {
+                            int inputIndex1 = rowIndexOffset + nx1;
+                            val_r1 += input[inputIndex1].r * filterValue;
+                            val_g1 += input[inputIndex1].g * filterValue;
+                            val_b1 += input[inputIndex1].b * filterValue;
+                        }
+                        if (nx2 >= 0 && nx2 < width) {
+                            int inputIndex2 = rowIndexOffset + nx2;
+                            val_r2 += input[inputIndex2].r * filterValue;
+                            val_g2 += input[inputIndex2].g * filterValue;
+                            val_b2 += input[inputIndex2].b * filterValue;
+                        }
+                        if (nx3 >= 0 && nx3 < width) {
+                            int inputIndex3 = rowIndexOffset + nx3;
+                            val_r3 += input[inputIndex3].r * filterValue;
+                            val_g3 += input[inputIndex3].g * filterValue;
+                            val_b3 += input[inputIndex3].b * filterValue;
+                        }
+                        if (nx4 >= 0 && nx4 < width) {
+                            int inputIndex4 = rowIndexOffset + nx4;
+                            val_r4 += input[inputIndex4].r * filterValue;
+                            val_g4 += input[inputIndex4].g * filterValue;
+                            val_b4 += input[inputIndex4].b * filterValue;
+                        }
+                        if (nx5 >= 0 && nx5 < width) {
+                            int inputIndex5 = rowIndexOffset + nx5;
+                            val_r5 += input[inputIndex5].r * filterValue;
+                            val_g5 += input[inputIndex5].g * filterValue;
+                            val_b5 += input[inputIndex5].b * filterValue;
+                        }
+                        if (nx6 >= 0 && nx6 < width) {
+                            int inputIndex6 = rowIndexOffset + nx6;
+                            val_r6 += input[inputIndex6].r * filterValue;
+                            val_g6 += input[inputIndex6].g * filterValue;
+                            val_b6 += input[inputIndex6].b * filterValue;
+                        }
+                        if (nx7 >= 0 && nx7 < width) {
+                            int inputIndex7 = rowIndexOffset + nx7;
+                            val_r7 += input[inputIndex7].r * filterValue;
+                            val_g7 += input[inputIndex7].g * filterValue;
+                            val_b7 += input[inputIndex7].b * filterValue;
+                        }
+                        if (nx8 >= 0 && nx8 < width) {
+                            int inputIndex8 = rowIndexOffset + nx8;
+                            val_r8 += input[inputIndex8].r * filterValue;
+                            val_g8 += input[inputIndex8].g * filterValue;
+                            val_b8 += input[inputIndex8].b * filterValue;
+                        }
+                    }
+                }
+            }
+
+            // Clamping values to be within 0 to 255
+            p1.r = (unsigned char)(val_r1 < 0 ? 0 : (val_r1 > 255 ? 255 : val_r1));
+            p1.g = (unsigned char)(val_g1 < 0 ? 0 : (val_g1 > 255 ? 255 : val_g1));
+            p1.b = (unsigned char)(val_b1 < 0 ? 0 : (val_b1 > 255 ? 255 : val_b1));
+
+            p2.r = (unsigned char)(val_r2 < 0 ? 0 : (val_r2 > 255 ? 255 : val_r2));
+            p2.g = (unsigned char)(val_g2 < 0 ? 0 : (val_g2 > 255 ? 255 : val_g2));
+            p2.b = (unsigned char)(val_b2 < 0 ? 0 : (val_b2 > 255 ? 255 : val_b2));
+
+            p3.r = (unsigned char)(val_r3 < 0 ? 0 : (val_r3 > 255 ? 255 : val_r3));
+            p3.g = (unsigned char)(val_g3 < 0 ? 0 : (val_g3 > 255 ? 255 : val_g3));
+            p3.b = (unsigned char)(val_b3 < 0 ? 0 : (val_b3 > 255 ? 255 : val_b3));
+
+            p4.r = (unsigned char)(val_r4 < 0 ? 0 : (val_r4 > 255 ? 255 : val_r4));
+            p4.g = (unsigned char)(val_g4 < 0 ? 0 : (val_g4 > 255 ? 255 : val_g4));
+            p4.b = (unsigned char)(val_b4 < 0 ? 0 : (val_b4 > 255 ? 255 : val_b4));
+
+            p5.r = (unsigned char)(val_r5 < 0 ? 0 : (val_r5 > 255 ? 255 : val_r5));
+            p5.g = (unsigned char)(val_g5 < 0 ? 0 : (val_g5 > 255 ? 255 : val_g5));
+            p5.b = (unsigned char)(val_b5 < 0 ? 0 : (val_b5 > 255 ? 255 : val_b5));
+
+            p6.r = (unsigned char)(val_r6 < 0 ? 0 : (val_r6 > 255 ? 255 : val_r6));
+            p6.g = (unsigned char)(val_g6 < 0 ? 0 : (val_g6 > 255 ? 255 : val_g6));
+            p6.b = (unsigned char)(val_b6 < 0 ? 0 : (val_b6 > 255 ? 255 : val_b6));
+
+            p7.r = (unsigned char)(val_r7 < 0 ? 0 : (val_r7 > 255 ? 255 : val_r7));
+            p7.g = (unsigned char)(val_g7 < 0 ? 0 : (val_g7 > 255 ? 255 : val_g7));
+            p7.b = (unsigned char)(val_b7 < 0 ? 0 : (val_b7 > 255 ? 255 : val_b7));
+
+            p8.r = (unsigned char)(val_r8 < 0 ? 0 : (val_r8 > 255 ? 255 : val_r8));
+            p8.g = (unsigned char)(val_g8 < 0 ? 0 : (val_g8 > 255 ? 255 : val_g8));
+            p8.b = (unsigned char)(val_b8 < 0 ? 0 : (val_b8 > 255 ? 255 : val_b8));
+
+            output[rowIndex + x] = p1;
+            output[rowIndex + x + 1] = p2;
+            output[rowIndex + x + 2] = p3;
+            output[rowIndex + x + 3] = p4;
+            output[rowIndex + x + 4] = p5;
+            output[rowIndex + x + 5] = p6;
+            output[rowIndex + x + 6] = p7;
+            output[rowIndex + x + 7] = p8;
+        }
+
+        // 처리되지 않은 나머지 픽셀 처리
+        for (int x = width_unrolled; x < width; ++x) {
+            Pixel p;
+            double val_r = 0;
+            double val_g = 0;
+            double val_b = 0;
+
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    int rowIndexOffset = ny * width;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int nx = x + dx;
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        float filterValue = filter[filterIndex];
+                        if (nx >= 0 && nx < width) {
+                            int inputIndex = rowIndexOffset + nx;
+                            val_r += input[inputIndex].r * filterValue;
+                            val_g += input[inputIndex].g * filterValue;
+                            val_b += input[inputIndex].b * filterValue;
+                        }
+                    }
+                }
+            }
+
+            // Clamping values to be within 0 to 255
+            p.r = (unsigned char)(val_r < 0 ? 0 : (val_r > 255 ? 255 : val_r));
+            p.g = (unsigned char)(val_g < 0 ? 0 : (val_g > 255 ? 255 : val_g));
+            p.b = (unsigned char)(val_b < 0 ? 0 : (val_b > 255 ? 255 : val_b));
+
+            output[rowIndex + x] = p;
+        }
+    }
+}
+10. Pixel 구조체 대신 uint8_t 배열을 사용하여 직접 메모리에 접근하여 값을 저장하도록 변경. 필요 없는 구조체 복사를 제거하여 성능을 개선
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+
+    int width_unrolled = width / 8 * 8; // Ensure width is multiple of 8 for loop unrolling
+
+    for (int y = 0; y < height; ++y) {
+        int rowIndex = y * width;
+
+        // Loop unrolled by 8 for processing pixels
+        for (int x = 0; x < width_unrolled; x += 8) {
+            //Pixel p1, p2, p3, p4, p5, p6, p7, p8;
+            double val_r1 = 0, val_r2 = 0, val_r3 = 0, val_r4 = 0;
+            double val_r5 = 0, val_r6 = 0, val_r7 = 0, val_r8 = 0;
+            double val_g1 = 0, val_g2 = 0, val_g3 = 0, val_g4 = 0;
+            double val_g5 = 0, val_g6 = 0, val_g7 = 0, val_g8 = 0;
+            double val_b1 = 0, val_b2 = 0, val_b3 = 0, val_b4 = 0;
+            double val_b5 = 0, val_b6 = 0, val_b7 = 0, val_b8 = 0;
+
+            // Loop over the filter
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    int rowIndexOffset = ny * width;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        float filterValue = filter[filterIndex];
+                        int nx1 = x + dx;
+                        int nx2 = x + dx + 1;
+                        int nx3 = x + dx + 2;
+                        int nx4 = x + dx + 3;
+                        int nx5 = x + dx + 4;
+                        int nx6 = x + dx + 5;
+                        int nx7 = x + dx + 6;
+                        int nx8 = x + dx + 7;
+
+                        if (nx1 >= 0 && nx1 < width) {
+                            int inputIndex1 = rowIndexOffset + nx1;
+                            val_r1 += input[inputIndex1].r * filterValue;
+                            val_g1 += input[inputIndex1].g * filterValue;
+                            val_b1 += input[inputIndex1].b * filterValue;
+                        }
+                        if (nx2 >= 0 && nx2 < width) {
+                            int inputIndex2 = rowIndexOffset + nx2;
+                            val_r2 += input[inputIndex2].r * filterValue;
+                            val_g2 += input[inputIndex2].g * filterValue;
+                            val_b2 += input[inputIndex2].b * filterValue;
+                        }
+                        if (nx3 >= 0 && nx3 < width) {
+                            int inputIndex3 = rowIndexOffset + nx3;
+                            val_r3 += input[inputIndex3].r * filterValue;
+                            val_g3 += input[inputIndex3].g * filterValue;
+                            val_b3 += input[inputIndex3].b * filterValue;
+                        }
+                        if (nx4 >= 0 && nx4 < width) {
+                            int inputIndex4 = rowIndexOffset + nx4;
+                            val_r4 += input[inputIndex4].r * filterValue;
+                            val_g4 += input[inputIndex4].g * filterValue;
+                            val_b4 += input[inputIndex4].b * filterValue;
+                        }
+                        if (nx5 >= 0 && nx5 < width) {
+                            int inputIndex5 = rowIndexOffset + nx5;
+                            val_r5 += input[inputIndex5].r * filterValue;
+                            val_g5 += input[inputIndex5].g * filterValue;
+                            val_b5 += input[inputIndex5].b * filterValue;
+                        }
+                        if (nx6 >= 0 && nx6 < width) {
+                            int inputIndex6 = rowIndexOffset + nx6;
+                            val_r6 += input[inputIndex6].r * filterValue;
+                            val_g6 += input[inputIndex6].g * filterValue;
+                            val_b6 += input[inputIndex6].b * filterValue;
+                        }
+                        if (nx7 >= 0 && nx7 < width) {
+                            int inputIndex7 = rowIndexOffset + nx7;
+                            val_r7 += input[inputIndex7].r * filterValue;
+                            val_g7 += input[inputIndex7].g * filterValue;
+                            val_b7 += input[inputIndex7].b * filterValue;
+                        }
+                        if (nx8 >= 0 && nx8 < width) {
+                            int inputIndex8 = rowIndexOffset + nx8;
+                            val_r8 += input[inputIndex8].r * filterValue;
+                            val_g8 += input[inputIndex8].g * filterValue;
+                            val_b8 += input[inputIndex8].b * filterValue;
+                        }
+                    }
+                }
+            }
+
+            // Store the clamped pixel values directly into output array
+            uint8_t* out_ptr = (uint8_t*)&output[rowIndex + x];
+            out_ptr[0] = (uint8_t)(val_r1 < 0 ? 0 : (val_r1 > 255 ? 255 : val_r1));
+            out_ptr[1] = (uint8_t)(val_g1 < 0 ? 0 : (val_g1 > 255 ? 255 : val_g1));
+            out_ptr[2] = (uint8_t)(val_b1 < 0 ? 0 : (val_b1 > 255 ? 255 : val_b1));
+
+            out_ptr[3] = (uint8_t)(val_r2 < 0 ? 0 : (val_r2 > 255 ? 255 : val_r2));
+            out_ptr[4] = (uint8_t)(val_g2 < 0 ? 0 : (val_g2 > 255 ? 255 : val_g2));
+            out_ptr[5] = (uint8_t)(val_b2 < 0 ? 0 : (val_b2 > 255 ? 255 : val_b2));
+
+            out_ptr[6] = (uint8_t)(val_r3 < 0 ? 0 : (val_r3 > 255 ? 255 : val_r3));
+            out_ptr[7] = (uint8_t)(val_g3 < 0 ? 0 : (val_g3 > 255 ? 255 : val_g3));
+            out_ptr[8] = (uint8_t)(val_b3 < 0 ? 0 : (val_b3 > 255 ? 255 : val_b3));
+
+            out_ptr[9] = (uint8_t)(val_r4 < 0 ? 0 : (val_r4 > 255 ? 255 : val_r4));
+            out_ptr[10] = (uint8_t)(val_g4 < 0 ? 0 : (val_g4 > 255 ? 255 : val_g4));
+            out_ptr[11] = (uint8_t)(val_b4 < 0 ? 0 : (val_b4 > 255 ? 255 : val_b4));
+
+            out_ptr[12] = (uint8_t)(val_r5 < 0 ? 0 : (val_r5 > 255 ? 255 : val_r5));
+            out_ptr[13] = (uint8_t)(val_g5 < 0 ? 0 : (val_g5 > 255 ? 255 : val_g5));
+            out_ptr[14] = (uint8_t)(val_b5 < 0 ? 0 : (val_b5 > 255 ? 255 : val_b5));
+
+            out_ptr[15] = (uint8_t)(val_r6 < 0 ? 0 : (val_r6 > 255 ? 255 : val_r6));
+            out_ptr[16] = (uint8_t)(val_g6 < 0 ? 0 : (val_g6 > 255 ? 255 : val_g6));
+            out_ptr[17] = (uint8_t)(val_b6 < 0 ? 0 : (val_b6 > 255 ? 255 : val_b6));
+
+            out_ptr[18] = (uint8_t)(val_r7 < 0 ? 0 : (val_r7 > 255 ? 255 : val_r7));
+            out_ptr[19] = (uint8_t)(val_g7 < 0 ? 0 : (val_g7 > 255 ? 255 : val_g7));
+            out_ptr[20] = (uint8_t)(val_b7 < 0 ? 0 : (val_b7 > 255 ? 255 : val_b7));
+
+            out_ptr[21] = (uint8_t)(val_r8 < 0 ? 0 : (val_r8 > 255 ? 255 : val_r8));
+            out_ptr[22] = (uint8_t)(val_g8 < 0 ? 0 : (val_g8 > 255 ? 255 : val_g8));
+            out_ptr[23] = (uint8_t)(val_b8 < 0 ? 0 : (val_b8 > 255 ? 255 : val_b8));
+        }
+
+        // 처리되지 않은 나머지 픽셀 처리
+        for (int x = width_unrolled; x < width; ++x) {
+            Pixel p;
+            double val_r = 0;
+            double val_g = 0;
+            double val_b = 0;
+
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    int rowIndexOffset = ny * width;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int nx = x + dx;
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        float filterValue = filter[filterIndex];
+                        if (nx >= 0 && nx < width) {
+                            int inputIndex = rowIndexOffset + nx;
+                            val_r += input[inputIndex].r * filterValue;
+                            val_g += input[inputIndex].g * filterValue;
+                            val_b += input[inputIndex].b * filterValue;
+                        }
+                    }
+                }
+            }
+
+            // Clamping values to be within 0 to 255
+            p.r = (unsigned char)(val_r < 0 ? 0 : (val_r > 255 ? 255 : val_r));
+            p.g = (unsigned char)(val_g < 0 ? 0 : (val_g > 255 ? 255 : val_g));
+            p.b = (unsigned char)(val_b < 0 ? 0 : (val_b > 255 ? 255 : val_b));
+
+            output[rowIndex + x] = p;
+        }
+    }
+}
+
+
+
+11. Uint24 struct를 만들어서 uint8 R,g,n 변수 세개를 묶어 한번에 관리하려 시도 --> 메모리 엑세스의 최소화를 시도 (하지만 잘 되지는 않음)
+
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+
+    int width_unrolled = width / 8 * 8; // Ensure width is multiple of 8 for loop unrolling
+
+    for (int y = 0; y < height; ++y) {
+        int rowIndex = y * width;
+
+        // Loop unrolled by 8 for processing pixels
+        for (int x = 0; x < width_unrolled; x += 8) {
+            //Pixel p1, p2, p3, p4, p5, p6, p7, p8;
+            double val_r1 = 0, val_r2 = 0, val_r3 = 0, val_r4 = 0;
+            double val_r5 = 0, val_r6 = 0, val_r7 = 0, val_r8 = 0;
+            double val_g1 = 0, val_g2 = 0, val_g3 = 0, val_g4 = 0;
+            double val_g5 = 0, val_g6 = 0, val_g7 = 0, val_g8 = 0;
+            double val_b1 = 0, val_b2 = 0, val_b3 = 0, val_b4 = 0;
+            double val_b5 = 0, val_b6 = 0, val_b7 = 0, val_b8 = 0;
+
+            // Loop over the filter
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    int rowIndexOffset = ny * width;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+
+                        int nx1 = x + dx;
+                        int nx2 = x + dx + 1;
+                        int nx3 = x + dx + 2;
+                        int nx4 = x + dx + 3;
+                        int nx5 = x + dx + 4;
+                        int nx6 = x + dx + 5;
+                        int nx7 = x + dx + 6;
+                        int nx8 = x + dx + 7;
+
+                        if (nx1 >= 0 && nx1 < width) {
+                            int inputIndex1 = rowIndexOffset + nx1;
+                            val_r1 += input[inputIndex1].r * filter[filterIndex];
+                            val_g1 += input[inputIndex1].g * filter[filterIndex];
+                            val_b1 += input[inputIndex1].b * filter[filterIndex];
+                        }
+                        if (nx2 >= 0 && nx2 < width) {
+                            int inputIndex2 = rowIndexOffset + nx2;
+                            val_r2 += input[inputIndex2].r * filter[filterIndex];
+                            val_g2 += input[inputIndex2].g * filter[filterIndex];
+                            val_b2 += input[inputIndex2].b * filter[filterIndex];
+                        }
+                        if (nx3 >= 0 && nx3 < width) {
+                            int inputIndex3 = rowIndexOffset + nx3;
+                            val_r3 += input[inputIndex3].r * filter[filterIndex];
+                            val_g3 += input[inputIndex3].g * filter[filterIndex];
+                            val_b3 += input[inputIndex3].b * filter[filterIndex];
+                        }
+                        if (nx4 >= 0 && nx4 < width) {
+                            int inputIndex4 = rowIndexOffset + nx4;
+                            val_r4 += input[inputIndex4].r * filter[filterIndex];
+                            val_g4 += input[inputIndex4].g * filter[filterIndex];
+                            val_b4 += input[inputIndex4].b * filter[filterIndex];
+                        }
+                        if (nx5 >= 0 && nx5 < width) {
+                            int inputIndex5 = rowIndexOffset + nx5;
+                            val_r5 += input[inputIndex5].r * filter[filterIndex];
+                            val_g5 += input[inputIndex5].g * filter[filterIndex];
+                            val_b5 += input[inputIndex5].b * filter[filterIndex];
+                        }
+                        if (nx6 >= 0 && nx6 < width) {
+                            int inputIndex6 = rowIndexOffset + nx6;
+                            val_r6 += input[inputIndex6].r * filter[filterIndex];
+                            val_g6 += input[inputIndex6].g * filter[filterIndex];
+                            val_b6 += input[inputIndex6].b * filter[filterIndex];
+                        }
+                        if (nx7 >= 0 && nx7 < width) {
+                            int inputIndex7 = rowIndexOffset + nx7;
+                            val_r7 += input[inputIndex7].r * filter[filterIndex];
+                            val_g7 += input[inputIndex7].g * filter[filterIndex];
+                            val_b7 += input[inputIndex7].b * filter[filterIndex];
+                        }
+                        if (nx8 >= 0 && nx8 < width) {
+                            int inputIndex8 = rowIndexOffset + nx8;
+                            val_r8 += input[inputIndex8].r * filter[filterIndex];
+                            val_g8 += input[inputIndex8].g * filter[filterIndex];
+                            val_b8 += input[inputIndex8].b * filter[filterIndex];
+                        }
+                    }
+                }
+            }
+
+            // Store the clamped pixel values directly into output array
+            // Store the clamped pixel values directly into output array
+            uint24* out_ptr = (uint24*)&output[rowIndex + x];
+
+            // Define and initialize uint24 structures for each out_ptr element
+            uint24 outptr_zero = {
+                .r = (uint8_t)(val_r1 < 0 ? 0 : (val_r1 > 255 ? 255 : val_r1)),
+                .g = (uint8_t)(val_g1 < 0 ? 0 : (val_g1 > 255 ? 255 : val_g1)),
+                .b = (uint8_t)(val_b1 < 0 ? 0 : (val_b1 > 255 ? 255 : val_b1))
+            }; 
+            out_ptr[0] = outptr_zero;
+
+            uint24 outptr_one = {
+                .r = (uint8_t)(val_r2 < 0 ? 0 : (val_r2 > 255 ? 255 : val_r2)),
+                .g = (uint8_t)(val_g2 < 0 ? 0 : (val_g2 > 255 ? 255 : val_g2)),
+                .b = (uint8_t)(val_b2 < 0 ? 0 : (val_b2 > 255 ? 255 : val_b2))
+            }; 
+            out_ptr[1] = outptr_one;
+
+            uint24 outptr_two = {
+                .r = (uint8_t)(val_r3 < 0 ? 0 : (val_r3 > 255 ? 255 : val_r3)),
+                .g = (uint8_t)(val_g3 < 0 ? 0 : (val_g3 > 255 ? 255 : val_g3)),
+                .b = (uint8_t)(val_b3 < 0 ? 0 : (val_b3 > 255 ? 255 : val_b3))
+            }; 
+            out_ptr[2] = outptr_two;
+
+            uint24 outptr_three = {
+                .r = (uint8_t)(val_r4 < 0 ? 0 : (val_r4 > 255 ? 255 : val_r4)),
+                .g = (uint8_t)(val_g4 < 0 ? 0 : (val_g4 > 255 ? 255 : val_g4)),
+                .b = (uint8_t)(val_b4 < 0 ? 0 : (val_b4 > 255 ? 255 : val_b4))
+            }; 
+            out_ptr[3] = outptr_three;
+
+            uint24 outptr_four = {
+                .r = (uint8_t)(val_r5 < 0 ? 0 : (val_r5 > 255 ? 255 : val_r5)),
+                .g = (uint8_t)(val_g5 < 0 ? 0 : (val_g5 > 255 ? 255 : val_g5)),
+                .b = (uint8_t)(val_b5 < 0 ? 0 : (val_b5 > 255 ? 255 : val_b5))
+            }; 
+            out_ptr[4] = outptr_four;
+
+            uint24 outptr_five = {
+                .r = (uint8_t)(val_r6 < 0 ? 0 : (val_r6 > 255 ? 255 : val_r6)),
+                .g = (uint8_t)(val_g6 < 0 ? 0 : (val_g6 > 255 ? 255 : val_g6)),
+                .b = (uint8_t)(val_b6 < 0 ? 0 : (val_b6 > 255 ? 255 : val_b6))
+            }; 
+            out_ptr[5] = outptr_five;
+
+            uint24 outptr_six = {
+                .r = (uint8_t)(val_r7 < 0 ? 0 : (val_r7 > 255 ? 255 : val_r7)),
+                .g = (uint8_t)(val_g7 < 0 ? 0 : (val_g7 > 255 ? 255 : val_g7)),
+                .b = (uint8_t)(val_b7 < 0 ? 0 : (val_b7 > 255 ? 255 : val_b7))
+            }; 
+            out_ptr[6] = outptr_six;
+
+            uint24 outptr_seven = {
+                .r = (uint8_t)(val_r8 < 0 ? 0 : (val_r8 > 255 ? 255 : val_r8)),
+                .g = (uint8_t)(val_g8 < 0 ? 0 : (val_g8 > 255 ? 255 : val_g8)),
+                .b = (uint8_t)(val_b8 < 0 ? 0 : (val_b8 > 255 ? 255 : val_b8))
+            }; 
+            out_ptr[7] = outptr_seven;
+
+        }
+
+        // 처리되지 않은 나머지 픽셀 처리
+        for (int x = width_unrolled; x < width; ++x) {
+            Pixel p;
+            double val_r = 0;
+            double val_g = 0;
+            double val_b = 0;
+
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    int rowIndexOffset = ny * width;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int nx = x + dx;
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        if (nx >= 0 && nx < width) {
+                            int inputIndex = rowIndexOffset + nx;
+                            val_r += input[inputIndex].r * filter[filterIndex];
+                            val_g += input[inputIndex].g * filter[filterIndex];
+                            val_b += input[inputIndex].b * filter[filterIndex];
+                        }
+                    }
+                }
+            }
+
+            // Clamping values to be within 0 to 255
+            p.r = (unsigned char)(val_r < 0 ? 0 : (val_r > 255 ? 255 : val_r));
+            p.g = (unsigned char)(val_g < 0 ? 0 : (val_g > 255 ? 255 : val_g));
+            p.b = (unsigned char)(val_b < 0 ? 0 : (val_b > 255 ? 255 : val_b));
+
+            output[rowIndex + x] = p;
+        }
+    }
+}
+
+12. Loop unrolling을 16으로 증가 --> 별다른 차이 없음
+
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+
+    int width_unrolled = width / 16 * 16; // Ensure width is multiple of 16 for loop unrolling
+
+    for (int y = 0; y < height; ++y) {
+        int rowIndex = y * width;
+
+        // Loop unrolled by 16 for processing pixels
+        for (int x = 0; x < width_unrolled; x += 16) {
+            double val_r1 = 0, val_r2 = 0, val_r3 = 0, val_r4 = 0;
+            double val_r5 = 0, val_r6 = 0, val_r7 = 0, val_r8 = 0;
+            double val_r9 = 0, val_r10 = 0, val_r11 = 0, val_r12 = 0;
+            double val_r13 = 0, val_r14 = 0, val_r15 = 0, val_r16 = 0;
+
+            double val_g1 = 0, val_g2 = 0, val_g3 = 0, val_g4 = 0;
+            double val_g5 = 0, val_g6 = 0, val_g7 = 0, val_g8 = 0;
+            double val_g9 = 0, val_g10 = 0, val_g11 = 0, val_g12 = 0;
+            double val_g13 = 0, val_g14 = 0, val_g15 = 0, val_g16 = 0;
+
+            double val_b1 = 0, val_b2 = 0, val_b3 = 0, val_b4 = 0;
+            double val_b5 = 0, val_b6 = 0, val_b7 = 0, val_b8 = 0;
+            double val_b9 = 0, val_b10 = 0, val_b11 = 0, val_b12 = 0;
+            double val_b13 = 0, val_b14 = 0, val_b15 = 0, val_b16 = 0;
+
+            // Loop over the filter
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    int rowIndexOffset = ny * width;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        float filterValue = filter[filterIndex];
+
+                        int xdx = x + dx;
+                        int nx1 = xdx;
+                        int nx2 = xdx + 1;
+                        int nx3 = xdx + 2;
+                        int nx4 = xdx + 3;
+                        int nx5 = xdx + 4;
+                        int nx6 = xdx + 5;
+                        int nx7 = xdx + 6;
+                        int nx8 = xdx + 7;
+                        int nx9 = xdx + 8;
+                        int nx10 = xdx + 9;
+                        int nx11 = xdx + 10;
+                        int nx12 = xdx + 11;
+                        int nx13 = xdx + 12;
+                        int nx14 = xdx + 13;
+                        int nx15 = xdx + 14;
+                        int nx16 = xdx + 15;
+
+                        if (nx1 >= 0 && nx1 < width) {
+                            int inputIndex1 = rowIndexOffset + nx1;
+                            val_r1 += input[inputIndex1].r * filterValue;
+                            val_g1 += input[inputIndex1].g * filterValue;
+                            val_b1 += input[inputIndex1].b * filterValue;
+                        }
+                        if (nx2 >= 0 && nx2 < width) {
+                            int inputIndex2 = rowIndexOffset + nx2;
+                            val_r2 += input[inputIndex2].r * filterValue;
+                            val_g2 += input[inputIndex2].g * filterValue;
+                            val_b2 += input[inputIndex2].b * filterValue;
+                        }
+                        if (nx3 >= 0 && nx3 < width) {
+                            int inputIndex3 = rowIndexOffset + nx3;
+                            val_r3 += input[inputIndex3].r * filterValue;
+                            val_g3 += input[inputIndex3].g * filterValue;
+                            val_b3 += input[inputIndex3].b * filterValue;
+                        }
+                        if (nx4 >= 0 && nx4 < width) {
+                            int inputIndex4 = rowIndexOffset + nx4;
+                            val_r4 += input[inputIndex4].r * filterValue;
+                            val_g4 += input[inputIndex4].g * filterValue;
+                            val_b4 += input[inputIndex4].b * filterValue;
+                        }
+                        if (nx5 >= 0 && nx5 < width) {
+                            int inputIndex5 = rowIndexOffset + nx5;
+                            val_r5 += input[inputIndex5].r * filterValue;
+                            val_g5 += input[inputIndex5].g * filterValue;
+                            val_b5 += input[inputIndex5].b * filterValue;
+                        }
+                        if (nx6 >= 0 && nx6 < width) {
+                            int inputIndex6 = rowIndexOffset + nx6;
+                            val_r6 += input[inputIndex6].r * filterValue;
+                            val_g6 += input[inputIndex6].g * filterValue;
+                            val_b6 += input[inputIndex6].b * filterValue;
+                        }
+                        if (nx7 >= 0 && nx7 < width) {
+                            int inputIndex7 = rowIndexOffset + nx7;
+                            val_r7 += input[inputIndex7].r * filterValue;
+                            val_g7 += input[inputIndex7].g * filterValue;
+                            val_b7 += input[inputIndex7].b * filterValue;
+                        }
+                        if (nx8 >= 0 && nx8 < width) {
+                            int inputIndex8 = rowIndexOffset + nx8;
+                            val_r8 += input[inputIndex8].r * filterValue;
+                            val_g8 += input[inputIndex8].g * filterValue;
+                            val_b8 += input[inputIndex8].b * filterValue;
+                        }
+                        if (nx9 >= 0 && nx9 < width) {
+                            int inputIndex9 = rowIndexOffset + nx9;
+                            val_r9 += input[inputIndex9].r * filterValue;
+                            val_g9 += input[inputIndex9].g * filterValue;
+                            val_b9 += input[inputIndex9].b * filterValue;
+                        }
+                        if (nx10 >= 0 && nx10 < width) {
+                            int inputIndex10 = rowIndexOffset + nx10;
+                            val_r10 += input[inputIndex10].r * filterValue;
+                            val_g10 += input[inputIndex10].g * filterValue;
+                            val_b10 += input[inputIndex10].b * filterValue;
+                        }
+                        if (nx11 >= 0 && nx11 < width) {
+                            int inputIndex11 = rowIndexOffset + nx11;
+                            val_r11 += input[inputIndex11].r * filterValue;
+                            val_g11 += input[inputIndex11].g * filterValue;
+                            val_b11 += input[inputIndex11].b * filterValue;
+                        }
+                        if (nx12 >= 0 && nx12 < width) {
+                            int inputIndex12 = rowIndexOffset + nx12;
+                            val_r12 += input[inputIndex12].r * filterValue;
+                            val_g12 += input[inputIndex12].g * filterValue;
+                            val_b12 += input[inputIndex12].b * filterValue;
+                        }
+                        if (nx13 >= 0 && nx13 < width) {
+                            int inputIndex13 = rowIndexOffset + nx13;
+                            val_r13 += input[inputIndex13].r * filterValue;
+                            val_g13 += input[inputIndex13].g * filterValue;
+                            val_b13 += input[inputIndex13].b * filterValue;
+                        }
+                        if (nx14 >= 0 && nx14 < width) {
+                            int inputIndex14 = rowIndexOffset + nx14;
+                            val_r14 += input[inputIndex14].r * filterValue;
+                            val_g14 += input[inputIndex14].g * filterValue;
+                            val_b14 += input[inputIndex14].b * filterValue;
+                        }
+                        if (nx15 >= 0 && nx15 < width) {
+                            int inputIndex15 = rowIndexOffset + nx15;
+                            val_r15 += input[inputIndex15].r * filterValue;
+                            val_g15 += input[inputIndex15].g * filterValue;
+                            val_b15 += input[inputIndex15].b * filterValue;
+                        }
+                        if (nx16 >= 0 && nx16 < width) {
+                            int inputIndex16 = rowIndexOffset + nx16;
+                            val_r16 += input[inputIndex16].r * filterValue;
+                            val_g16 += input[inputIndex16].g * filterValue;
+                            val_b16 += input[inputIndex16].b * filterValue;
+                    }
+                }
+            }
+        }
+
+        // Store the clamped pixel values directly into output array
+        uint8_t* out_ptr = (uint8_t*)&output[rowIndex + x];
+        out_ptr[0] = (uint8_t)(val_r1 < 0 ? 0 : (val_r1 > 255 ? 255 : val_r1));
+        out_ptr[1] = (uint8_t)(val_g1 < 0 ? 0 : (val_g1 > 255 ? 255 : val_g1));
+        out_ptr[2] = (uint8_t)(val_b1 < 0 ? 0 : (val_b1 > 255 ? 255 : val_b1));
+
+        out_ptr[3] = (uint8_t)(val_r2 < 0 ? 0 : (val_r2 > 255 ? 255 : val_r2));
+        out_ptr[4] = (uint8_t)(val_g2 < 0 ? 0 : (val_g2 > 255 ? 255 : val_g2));
+        out_ptr[5] = (uint8_t)(val_b2 < 0 ? 0 : (val_b2 > 255 ? 255 : val_b2));
+
+        out_ptr[6] = (uint8_t)(val_r3 < 0 ? 0 : (val_r3 > 255 ? 255 : val_r3));
+        out_ptr[7] = (uint8_t)(val_g3 < 0 ? 0 : (val_g3 > 255 ? 255 : val_g3));
+        out_ptr[8] = (uint8_t)(val_b3 < 0 ? 0 : (val_b3 > 255 ? 255 : val_b3));
+
+        out_ptr[9] = (uint8_t)(val_r4 < 0 ? 0 : (val_r4 > 255 ? 255 : val_r4));
+        out_ptr[10] = (uint8_t)(val_g4 < 0 ? 0 : (val_g4 > 255 ? 255 : val_g4));
+        out_ptr[11] = (uint8_t)(val_b4 < 0 ? 0 : (val_b4 > 255 ? 255 : val_b4));
+
+        out_ptr[12] = (uint8_t)(val_r5 < 0 ? 0 : (val_r5 > 255 ? 255 : val_r5));
+        out_ptr[13] = (uint8_t)(val_g5 < 0 ? 0 : (val_g5 > 255 ? 255 : val_g5));
+        out_ptr[14] = (uint8_t)(val_b5 < 0 ? 0 : (val_b5 > 255 ? 255 : val_b5));
+
+        out_ptr[15] = (uint8_t)(val_r6 < 0 ? 0 : (val_r6 > 255 ? 255 : val_r6));
+        out_ptr[16] = (uint8_t)(val_g6 < 0 ? 0 : (val_g6 > 255 ? 255 : val_g6));
+        out_ptr[17] = (uint8_t)(val_b6 < 0 ? 0 : (val_b6 > 255 ? 255 : val_b6));
+
+        out_ptr[18] = (uint8_t)(val_r7 < 0 ? 0 : (val_r7 > 255 ? 255 : val_r7));
+        out_ptr[19] = (uint8_t)(val_g7 < 0 ? 0 : (val_g7 > 255 ? 255 : val_g7));
+        out_ptr[20] = (uint8_t)(val_b7 < 0 ? 0 : (val_b7 > 255 ? 255 : val_b7));
+
+        out_ptr[21] = (uint8_t)(val_r8 < 0 ? 0 : (val_r8 > 255 ? 255 : val_r8));
+        out_ptr[22] = (uint8_t)(val_g8 < 0 ? 0 : (val_g8 > 255 ? 255 : val_g8));
+        out_ptr[23] = (uint8_t)(val_b8 < 0 ? 0 : (val_b8 > 255 ? 255 : val_b8));
+
+        out_ptr[24] = (uint8_t)(val_r9 < 0 ? 0 : (val_r9 > 255 ? 255 : val_r9));
+        out_ptr[25] = (uint8_t)(val_g9 < 0 ? 0 : (val_g9 > 255 ? 255 : val_g9));
+        out_ptr[26] = (uint8_t)(val_b9 < 0 ? 0 : (val_b9 > 255 ? 255 : val_b9));
+
+        out_ptr[27] = (uint8_t)(val_r10 < 0 ? 0 : (val_r10 > 255 ? 255 : val_r10));
+        out_ptr[28] = (uint8_t)(val_g10 < 0 ? 0 : (val_g10 > 255 ? 255 : val_g10));
+        out_ptr[29] = (uint8_t)(val_b10 < 0 ? 0 : (val_b10 > 255 ? 255 : val_b10));
+
+        out_ptr[30] = (uint8_t)(val_r11 < 0 ? 0 : (val_r11 > 255 ? 255 : val_r11));
+        out_ptr[31] = (uint8_t)(val_g11 < 0 ? 0 : (val_g11 > 255 ? 255 : val_g11));
+        out_ptr[32] = (uint8_t)(val_b11 < 0 ? 0 : (val_b11 > 255 ? 255 : val_b11));
+
+        out_ptr[33] = (uint8_t)(val_r12 < 0 ? 0 : (val_r12 > 255 ? 255 : val_r12));
+        out_ptr[34] = (uint8_t)(val_g12 < 0 ? 0 : (val_g12 > 255 ? 255 : val_g12));
+        out_ptr[35] = (uint8_t)(val_b12 < 0 ? 0 : (val_b12 > 255 ? 255 : val_b12));
+
+        out_ptr[36] = (uint8_t)(val_r13 < 0 ? 0 : (val_r13 > 255 ? 255 : val_r13));
+        out_ptr[37] = (uint8_t)(val_g13 < 0 ? 0 : (val_g13 > 255 ? 255 : val_g13));
+        out_ptr[38] = (uint8_t)(val_b13 < 0 ? 0 : (val_b13 > 255 ? 255 : val_b13));
+
+        out_ptr[39] = (uint8_t)(val_r14 < 0 ? 0 : (val_r14 > 255 ? 255 : val_r14));
+        out_ptr[40] = (uint8_t)(val_g14 < 0 ? 0 : (val_g14 > 255 ? 255 : val_g14));
+        out_ptr[41] = (uint8_t)(val_b14 < 0 ? 0 : (val_b14 > 255 ? 255 : val_b14));
+
+        out_ptr[42] = (uint8_t)(val_r15 < 0 ? 0 : (val_r15 > 255 ? 255 : val_r15));
+        out_ptr[43] = (uint8_t)(val_g15 < 0 ? 0 : (val_g15 > 255 ? 255 : val_g15));
+        out_ptr[44] = (uint8_t)(val_b15 < 0 ? 0 : (val_b15 > 255 ? 255 : val_b15));
+
+        out_ptr[45] = (uint8_t)(val_r16 < 0 ? 0 : (val_r16 > 255 ? 255 : val_r16));
+        out_ptr[46] = (uint8_t)(val_g16 < 0 ? 0 : (val_g16 > 255 ? 255 : val_g16));
+        out_ptr[47] = (uint8_t)(val_b16 < 0 ? 0 : (val_b16 > 255 ? 255 : val_b16));
+    }
+
+    // 처리되지 않은 나머지 픽셀 처리
+    for (int x = width_unrolled; x < width; ++x) {
+        Pixel p;
+        double val_r = 0;
+        double val_g = 0;
+        double val_b = 0;
+
+        for (int dy = -1; dy < 2; ++dy) {
+            int ny = y + dy;
+            if (ny >= 0 && ny < height) {
+                int rowIndexOffset = ny * width;
+                for (int dx = -1; dx <= 1; ++dx) {
+                    int nx = x + dx;
+                    int filterIndex = (dy + 1) * 3 + (dx + 1);
+                    float filterValue = filter[filterIndex];
+                    if (nx >= 0 && nx < width) {
+                        int inputIndex = rowIndexOffset + nx;
+                        val_r += input[inputIndex].r * filterValue;
+                        val_g += input[inputIndex].g * filterValue;
+                        val_b += input[inputIndex].b * filterValue;
+                        }
+                    }
+                }
+            }
+
+            // Clamping values to be within 0 to 255
+            p.r = (unsigned char)(val_r < 0 ? 0 : (val_r > 255 ? 255 : val_r));
+            p.g = (unsigned char)(val_g < 0 ? 0 : (val_g > 255 ? 255 : val_g));
+            p.b = (unsigned char)(val_b < 0 ? 0 : (val_b > 255 ? 255 : val_b));
+
+            output[rowIndex + x] = p;
+        }
+    }
+}
+
+13.고정 소수점 수학을 사용
+void filter_optimized(void* args[]) {
+    unsigned int width = *(unsigned int*)args[0];
+    unsigned int height = *(unsigned int*)args[1];
+    Pixel* input = args[2];
+    Pixel* output = args[3];
+    float* filter = args[4];
+
+    int width_unrolled = width / 8 * 8; // Ensure width is multiple of 8 for loop unrolling
+
+    // 필터를 정수로 변환
+    int filter_int[9];
+    for (int i = 0; i < 9; ++i) {
+        filter_int[i] = (int)(filter[i] * SCALE_FACTOR);
+    }
+
+    for (int y = 0; y < height; ++y) {
+        int rowIndex = y * width;
+
+        // Loop unrolled by 8 for processing pixels
+        for (int x = 0; x < width_unrolled; x += 8) {
+            int32_t val_r1 = 0, val_r2 = 0, val_r3 = 0, val_r4 = 0;
+            int32_t val_r5 = 0, val_r6 = 0, val_r7 = 0, val_r8 = 0;
+            int32_t val_g1 = 0, val_g2 = 0, val_g3 = 0, val_g4 = 0;
+            int32_t val_g5 = 0, val_g6 = 0, val_g7 = 0, val_g8 = 0;
+            int32_t val_b1 = 0, val_b2 = 0, val_b3 = 0, val_b4 = 0;
+            int32_t val_b5 = 0, val_b6 = 0, val_b7 = 0, val_b8 = 0;
+
+            // Loop over the filter
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    int rowIndexOffset = ny * width;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        int filterValue = filter_int[filterIndex];
+                        int nx1 = x + dx;
+                        int nx2 = x + dx + 1;
+                        int nx3 = x + dx + 2;
+                        int nx4 = x + dx + 3;
+                        int nx5 = x + dx + 4;
+                        int nx6 = x + dx + 5;
+                        int nx7 = x + dx + 6;
+                        int nx8 = x + dx + 7;
+
+                        if (nx1 >= 0 && nx1 < width) {
+                            int inputIndex1 = rowIndexOffset + nx1;
+                            val_r1 += input[inputIndex1].r * filterValue;
+                            val_g1 += input[inputIndex1].g * filterValue;
+                            val_b1 += input[inputIndex1].b * filterValue;
+                        }
+                        if (nx2 >= 0 && nx2 < width) {
+                            int inputIndex2 = rowIndexOffset + nx2;
+                            val_r2 += input[inputIndex2].r * filterValue;
+                            val_g2 += input[inputIndex2].g * filterValue;
+                            val_b2 += input[inputIndex2].b * filterValue;
+                        }
+                        if (nx3 >= 0 && nx3 < width) {
+                            int inputIndex3 = rowIndexOffset + nx3;
+                            val_r3 += input[inputIndex3].r * filterValue;
+                            val_g3 += input[inputIndex3].g * filterValue;
+                            val_b3 += input[inputIndex3].b * filterValue;
+                        }
+                        if (nx4 >= 0 && nx4 < width) {
+                            int inputIndex4 = rowIndexOffset + nx4;
+                            val_r4 += input[inputIndex4].r * filterValue;
+                            val_g4 += input[inputIndex4].g * filterValue;
+                            val_b4 += input[inputIndex4].b * filterValue;
+                        }
+                        if (nx5 >= 0 && nx5 < width) {
+                            int inputIndex5 = rowIndexOffset + nx5;
+                            val_r5 += input[inputIndex5].r * filterValue;
+                            val_g5 += input[inputIndex5].g * filterValue;
+                            val_b5 += input[inputIndex5].b * filterValue;
+                        }
+                        if (nx6 >= 0 && nx6 < width) {
+                            int inputIndex6 = rowIndexOffset + nx6;
+                            val_r6 += input[inputIndex6].r * filterValue;
+                            val_g6 += input[inputIndex6].g * filterValue;
+                            val_b6 += input[inputIndex6].b * filterValue;
+                        }
+                        if (nx7 >= 0 && nx7 < width) {
+                            int inputIndex7 = rowIndexOffset + nx7;
+                            val_r7 += input[inputIndex7].r * filterValue;
+                            val_g7 += input[inputIndex7].g * filterValue;
+                            val_b7 += input[inputIndex7].b * filterValue;
+                        }
+                        if (nx8 >= 0 && nx8 < width) {
+                            int inputIndex8 = rowIndexOffset + nx8;
+                            val_r8 += input[inputIndex8].r * filterValue;
+                            val_g8 += input[inputIndex8].g * filterValue;
+                            val_b8 += input[inputIndex8].b * filterValue;
+                        }
+                    }
+                }
+            }
+
+            // Store the clamped pixel values directly into output array
+            uint8_t* out_ptr = (uint8_t*)&output[rowIndex + x];
+            out_ptr[0] = (uint8_t)((val_r1 / SCALE_FACTOR) < 0 ? 0 : ((val_r1 / SCALE_FACTOR) > 255 ? 255 : (val_r1 / SCALE_FACTOR)));
+            out_ptr[1] = (uint8_t)((val_g1 / SCALE_FACTOR) < 0 ? 0 : ((val_g1 / SCALE_FACTOR) > 255 ? 255 : (val_g1 / SCALE_FACTOR)));
+            out_ptr[2] = (uint8_t)((val_b1 / SCALE_FACTOR) < 0 ? 0 : ((val_b1 / SCALE_FACTOR) > 255 ? 255 : (val_b1 / SCALE_FACTOR)));
+
+            out_ptr[3] = (uint8_t)((val_r2 / SCALE_FACTOR) < 0 ? 0 : ((val_r2 / SCALE_FACTOR) > 255 ? 255 : (val_r2 / SCALE_FACTOR)));
+            out_ptr[4] = (uint8_t)((val_g2 / SCALE_FACTOR) < 0 ? 0 : ((val_g2 / SCALE_FACTOR) > 255 ? 255 : (val_g2 / SCALE_FACTOR)));
+            out_ptr[5] = (uint8_t)((val_b2 / SCALE_FACTOR) < 0 ? 0 : ((val_b2 / SCALE_FACTOR) > 255 ? 255 : (val_b2 / SCALE_FACTOR)));
+
+            out_ptr[6] = (uint8_t)((val_r3 / SCALE_FACTOR) < 0 ? 0 : ((val_r3 / SCALE_FACTOR) > 255 ? 255 : (val_r3 / SCALE_FACTOR)));
+            out_ptr[7] = (uint8_t)((val_g3 / SCALE_FACTOR) < 0 ? 0 : ((val_g3 / SCALE_FACTOR) > 255 ? 255 : (val_g3 / SCALE_FACTOR)));
+            out_ptr[8] = (uint8_t)((val_b3 / SCALE_FACTOR) < 0 ? 0 : ((val_b3 / SCALE_FACTOR) > 255 ? 255 : (val_b3 / SCALE_FACTOR)));
+
+            out_ptr[9] = (uint8_t)((val_r4 / SCALE_FACTOR) < 0 ? 0 : ((val_r4 / SCALE_FACTOR) > 255 ? 255 : (val_r4 / SCALE_FACTOR)));
+            out_ptr[10] = (uint8_t)((val_g4 / SCALE_FACTOR) < 0 ? 0 : ((val_g4 / SCALE_FACTOR) > 255 ? 255 : (val_g4 / SCALE_FACTOR)));
+            out_ptr[11] = (uint8_t)((val_b4 / SCALE_FACTOR) < 0 ? 0 : ((val_b4 / SCALE_FACTOR) > 255 ? 255 : (val_b4 / SCALE_FACTOR)));
+
+            out_ptr[12] = (uint8_t)((val_r5 / SCALE_FACTOR) < 0 ? 0 : ((val_r5 / SCALE_FACTOR) > 255 ? 255 : (val_r5 / SCALE_FACTOR)));
+            out_ptr[13] = (uint8_t)((val_g5 / SCALE_FACTOR) < 0 ? 0 : ((val_g5 / SCALE_FACTOR) > 255 ? 255 : (val_g5 / SCALE_FACTOR)));
+            out_ptr[14] = (uint8_t)((val_b5 / SCALE_FACTOR) < 0 ? 0 : ((val_b5 / SCALE_FACTOR) > 255 ? 255 : (val_b5 / SCALE_FACTOR)));
+
+            out_ptr[15] = (uint8_t)((val_r6 / SCALE_FACTOR) < 0 ? 0 : ((val_r6 / SCALE_FACTOR) > 255 ? 255 : (val_r6 / SCALE_FACTOR)));
+            out_ptr[16] = (uint8_t)((val_g6 / SCALE_FACTOR) < 0 ? 0 : ((val_g6 / SCALE_FACTOR) > 255 ? 255 : (val_g6 / SCALE_FACTOR)));
+            out_ptr[17] = (uint8_t)((val_b6 / SCALE_FACTOR) < 0 ? 0 : ((val_b6 / SCALE_FACTOR) > 255 ? 255 : (val_b6 / SCALE_FACTOR)));
+
+            out_ptr[18] = (uint8_t)((val_r7 / SCALE_FACTOR) < 0 ? 0 : ((val_r7 / SCALE_FACTOR) > 255 ? 255 : (val_r7 / SCALE_FACTOR)));
+            out_ptr[19] = (uint8_t)((val_g7 / SCALE_FACTOR) < 0 ? 0 : ((val_g7 / SCALE_FACTOR) > 255 ? 255 : (val_g7 / SCALE_FACTOR)));
+            out_ptr[20] = (uint8_t)((val_b7 / SCALE_FACTOR) < 0 ? 0 : ((val_b7 / SCALE_FACTOR) > 255 ? 255 : (val_b7 / SCALE_FACTOR)));
+
+            out_ptr[21] = (uint8_t)((val_r8 / SCALE_FACTOR) < 0 ? 0 : ((val_r8 / SCALE_FACTOR) > 255 ? 255 : (val_r8 / SCALE_FACTOR)));
+            out_ptr[22] = (uint8_t)((val_g8 / SCALE_FACTOR) < 0 ? 0 : ((val_g8 / SCALE_FACTOR) > 255 ? 255 : (val_g8 / SCALE_FACTOR)));
+            out_ptr[23] = (uint8_t)((val_b8 / SCALE_FACTOR) < 0 ? 0 : ((val_b8 / SCALE_FACTOR) > 255 ? 255 : (val_b8 / SCALE_FACTOR)));
+        }
+
+        // 처리되지 않은 나머지 픽셀 처리
+        for (int x = width_unrolled; x < width; ++x) {
+            Pixel p;
+            int32_t val_r = 0;
+            int32_t val_g = 0;
+            int32_t val_b = 0;
+
+            for (int dy = -1; dy < 2; ++dy) {
+                int ny = y + dy;
+                if (ny >= 0 && ny < height) {
+                    int rowIndexOffset = ny * width;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int nx = x + dx;
+                        int filterIndex = (dy + 1) * 3 + (dx + 1);
+                        int filterValue = filter_int[filterIndex];
+                        if (nx >= 0 && nx < width) {
+                            int inputIndex = rowIndexOffset + nx;
+                            val_r += input[inputIndex].r * filterValue;
+                            val_g += input[inputIndex].g * filterValue;
+                            val_b += input[inputIndex].b * filterValue;
+                        }
+                    }
+                }
+            }
+
+            // Clamping values to be within 0 to 255
+            p.r = (unsigned char)((val_r / SCALE_FACTOR) < 0 ? 0 : ((val_r / SCALE_FACTOR) > 255 ? 255 : (val_r / SCALE_FACTOR)));
+            p.g = (unsigned char)((val_g / SCALE_FACTOR) < 0 ? 0 : ((val_g / SCALE_FACTOR) > 255 ? 255 : (val_g / SCALE_FACTOR)));
+            p.b = (unsigned char)((val_b / SCALE_FACTOR) < 0 ? 0 : ((val_b / SCALE_FACTOR) > 255 ? 255 : (val_b / SCALE_FACTOR)));
+
+            output[rowIndex + x] = p;
+        }
+    }
+}
+
+14. 비트 연산으로 가급적 대체
+
+
