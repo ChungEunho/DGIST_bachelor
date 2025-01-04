@@ -1,0 +1,8 @@
+This Alarm App is a simple alarm app.
+When you wake up, you can barely open your eyes, so i thought 'why not make an app that reads your alarm text?'
+I wanted to make an app that reads you alarm text, not just showing it on the phone screen like a label.
+
+
+  I implemented alarm saving functions, alarm deletion functions, text_to_speech functions.
+  
+  
